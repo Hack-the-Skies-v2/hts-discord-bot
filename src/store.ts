@@ -35,8 +35,11 @@ const toQuestion = (r: QuestionRow): Question => ({
   timeLimitSeconds: r.time_limit_seconds,
 });
 
+// Accept the project URL with or without a trailing path (e.g. ".../rest/v1/"); the client adds its own paths.
+export const normalizeSupabaseUrl = (url: string) => new URL(url.trim()).origin;
+
 export function createSupabaseStore(url: string, serviceRoleKey: string): Store {
-  const db: SupabaseClient = createClient(url, serviceRoleKey, {
+  const db: SupabaseClient = createClient(normalizeSupabaseUrl(url), serviceRoleKey.trim(), {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 

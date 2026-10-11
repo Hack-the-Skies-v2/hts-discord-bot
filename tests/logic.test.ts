@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeSupabaseUrl } from "../src/store.js";
 import { formatLeaderboard, formatQuestion, isValidEmail, isWithinTimeLimit, pickQuestion, type Question } from "../src/logic.js";
 
 const q = (id: string): Question => ({ id, question: `Q${id}?`, choices: ["a", "b"], correctIndex: 0, timeLimitSeconds: 30 });
@@ -31,5 +32,12 @@ describe("formatters", () => {
   it("validates emails", () => {
     expect(isValidEmail("a@b.co")).toBe(true);
     expect(isValidEmail("nope")).toBe(false);
+  });
+});
+
+describe("normalizeSupabaseUrl", () => {
+  it("strips paths so a pasted REST URL still works", () => {
+    expect(normalizeSupabaseUrl("https://abc.supabase.co/rest/v1/")).toBe("https://abc.supabase.co");
+    expect(normalizeSupabaseUrl(" https://abc.supabase.co ")).toBe("https://abc.supabase.co");
   });
 });
