@@ -19,6 +19,7 @@ function fakeStore(overrides: Partial<Store> = {}) {
     markQuestionAsked: async (id) => void asked.push(id),
     getQuestion: async () => question,
     recordAnswer: async (u, q) => (answered.has(`${u}:${q}`) ? false : (answered.add(`${u}:${q}`), true)),
+    getTriviaProgress: async () => ({ earned: 0, max: null }),
     awardTriviaPoints: async () => 10,
     getBalance: async () => 40,
     leaderboard: async () => [{ discordId: "1", balance: 5 }],

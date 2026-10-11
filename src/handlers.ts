@@ -22,13 +22,21 @@ export async function answerQuestion(
   if (!userId) return { status: "not-linked" };
   if (!isWithinTimeLimit(postedAtMs, nowMs, question.timeLimitSeconds)) return { status: "expired" };
 
+  const { earned, max } = await store.getTriviaProgress(userId);
+  if (max !== null && earned >= max) return { status: "capped", max };
+
   const correct = choiceIndex === question.correctIndex;
   const recorded = await store.recordAnswer(userId, question.id, correct);
   if (!recorded) return { status: "already-answered" };
 
   if (!correct) return { status: "wrong" };
-  const points = await store.awardTriviaPoints(userId);
-  return { status: "correct", points };
+  try {
+    return { status: "correct", points: await store.awardTriviaPoints(userId) };
+  } catch (err) {
+    // Two answers racing past the cap check: the database trigger is the final say.
+    if (err instanceof Error && /redemption limit/i.test(err.message)) return { status: "capped", max: max ?? earned };
+    throw err;
+  }
 }
 
 export async function getPointsMessage(store: Store, discordId: string): Promise<string> {
@@ -43,6 +51,8 @@ export function outcomeMessage(outcome: AnswerOutcome): string {
       return "Link your HTS account first with `/link email:<your HTS email>`, then try the next question.";
     case "expired":
       return "Time's up for this question!";
+    case "capped":
+      return `You've already earned points for ${outcome.max} correct trivia answers, the maximum. Thanks for playing!`;
     case "already-answered":
       return "You already answered this one.";
     case "correct":

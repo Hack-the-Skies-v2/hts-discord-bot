@@ -12,6 +12,8 @@ export interface Store {
   getQuestion(id: string): Promise<Question | null>;
   /** Returns false if the user already answered this question. */
   recordAnswer(userId: string, questionId: string, correct: boolean): Promise<boolean>;
+  /** How many trivia awards the user has and the cap (null = unlimited). */
+  getTriviaProgress(userId: string): Promise<{ earned: number; max: number | null }>;
   awardTriviaPoints(userId: string): Promise<number>;
   getBalance(userId: string): Promise<number>;
   leaderboard(limit: number): Promise<{ discordId: string; balance: number }[]>;
@@ -106,6 +108,22 @@ export function createSupabaseStore(url: string, serviceRoleKey: string): Store 
       if (error?.code === "23505") return false;
       if (error) throw error;
       return true;
+    },
+
+    async getTriviaProgress(userId) {
+      const { data: action, error: actionError } = await db
+        .from("point_actions")
+        .select("id, max_redemptions")
+        .eq("name", TRIVIA_ACTION)
+        .single();
+      if (actionError) throw actionError;
+      const { count, error } = await db
+        .from("point_earnings")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("point_action_id", action.id);
+      if (error) throw error;
+      return { earned: count ?? 0, max: action.max_redemptions as number | null };
     },
 
     async awardTriviaPoints(userId) {

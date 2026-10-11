@@ -9,6 +9,7 @@ export type Question = {
 export type AnswerOutcome =
   | { status: "not-linked" }
   | { status: "expired" }
+  | { status: "capped"; max: number }
   | { status: "already-answered" }
   | { status: "correct"; points: number }
   | { status: "wrong" };
