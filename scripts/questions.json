@@ -1,0 +1,7 @@
+[
+  { "question": "What is the closest planet to the Sun?", "choices": ["Venus", "Mercury", "Mars", "Earth"], "correctIndex": 1 },
+  { "question": "What does HTML stand for?", "choices": ["HyperText Markup Language", "HighTech Modern Language", "Hyperlink Text Mode Language"], "correctIndex": 0 },
+  { "question": "Which planet has the most prominent rings?", "choices": ["Jupiter", "Neptune", "Saturn", "Uranus"], "correctIndex": 2 },
+  { "question": "Which data structure uses FIFO ordering?", "choices": ["Stack", "Queue", "Tree", "Heap"], "correctIndex": 1 },
+  { "question": "What does the 'S' in HTTPS stand for?", "choices": ["Standard", "Server", "Secure", "Simple"], "correctIndex": 2 }
+]

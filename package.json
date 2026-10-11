@@ -1,0 +1,24 @@
+{
+  "name": "hts-discord-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy-commands": "tsx src/deploy-commands.ts",
+    "seed": "tsx scripts/seed-questions.ts",
+    "setup-automod": "tsx scripts/setup-automod.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.19.0",
+    "typescript": "^5",
+    "vitest": "^2.1.0"
+  }
+}
