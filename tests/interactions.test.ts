@@ -1,40 +1,17 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { handleInteraction } from "../src/interactions.js";
-import type { Question } from "../src/logic.js";
-import type { Store } from "../src/store.js";
 import { verifyDiscordSignature } from "../src/verify.js";
+import { fakeStore } from "./fakeStore.js";
 
-const question: Question = { id: "q1", question: "?", choices: ["right", "wrong"], correctIndex: 0, timeLimitSeconds: 30 };
-
-function fakeStore(overrides: Partial<Store> = {}) {
-  const asked: string[] = [];
-  const answered = new Set<string>();
-  const store: Store = {
-    getLinkedUserId: async (d) => (d === "linked" ? "user-1" : null),
-    findUserIdByEmail: async (e) => (e === "hacker@example.com" ? "user-1" : null),
-    isAcceptedParticipant: async () => true,
-    linkDiscord: async () => "ok",
-    listQuestions: async () => [question],
-    markQuestionAsked: async (id) => void asked.push(id),
-    getQuestion: async () => question,
-    recordAnswer: async (u, q) => (answered.has(`${u}:${q}`) ? false : (answered.add(`${u}:${q}`), true)),
-    getTriviaProgress: async () => ({ earned: 0, max: null }),
-    awardTriviaPoints: async () => 10,
-    getBalance: async () => 40,
-    leaderboard: async () => [{ discordId: "1", balance: 5 }],
-    ...overrides,
-  };
-  return { store, asked };
-}
-
-const command = (name: string, extra: object = {}) => ({ type: 2, data: { name, ...extra }, member: { user: { id: "linked" }, permissions: "0" } });
-const click = (choice: number, ageMs: number, now: number) => ({
+const command = (name: string, who = "linked", extra: object = {}) => ({ type: 2, data: { name, ...extra }, member: { user: { id: who } } });
+const click = (choice: number, ageMs: number, now: number, questionId = "q1") => ({
   type: 3,
-  data: { custom_id: `trivia:q1:${choice}` },
+  data: { custom_id: `trivia:${questionId}:${choice}` },
   member: { user: { id: "linked" } },
   message: { timestamp: new Date(now - ageMs).toISOString() },
 });
+const first = () => 0; // always picks the first unseen question (q1)
 
 describe("handleInteraction", () => {
   it("answers Discord's PING", async () => {
@@ -44,11 +21,11 @@ describe("handleInteraction", () => {
   it("/points replies privately with the balance", async () => {
     const res = await handleInteraction(command("points"), fakeStore().store);
     expect(res.data).toMatchObject({ flags: 64 });
-    expect(res.data?.content).toContain("40");
+    expect(res.data?.content).toContain("0");
   });
 
   it("/link links an accepted hacker", async () => {
-    const res = await handleInteraction(command("link", { options: [{ name: "email", value: "hacker@example.com" }] }), fakeStore().store);
+    const res = await handleInteraction(command("link", "d9", { options: [{ name: "email", value: "hacker@example.com" }] }), fakeStore().store);
     expect(res.data?.content).toMatch(/Linked/);
   });
 
@@ -57,32 +34,55 @@ describe("handleInteraction", () => {
     expect(res.data?.flags).toBeUndefined();
     expect(res.data?.allowed_mentions).toEqual({ parse: [] });
   });
+});
 
-  it("/trivia is organizers-only", async () => {
-    const { store, asked } = fakeStore();
-    const res = await handleInteraction(command("trivia"), store);
-    expect(res.data?.content).toMatch(/Only organizers/);
-    expect(asked).toEqual([]);
-  });
-
-  it("/trivia posts a question with buttons and marks it asked", async () => {
-    const { store, asked } = fakeStore();
-    const res = await handleInteraction({ ...command("trivia"), member: { user: { id: "o" }, permissions: String(1 << 5) } }, store);
-    expect(asked).toEqual(["q1"]);
+describe("personal /trivia", () => {
+  it("any linked hacker gets a private question with buttons and a 10 second limit", async () => {
+    const res = await handleInteraction(command("trivia"), fakeStore().store, Date.now(), first);
+    expect(res.data).toMatchObject({ flags: 64 });
+    expect(res.data?.content).toMatch(/One\?/);
+    expect(res.data?.content).toMatch(/10s/);
     expect((res.data?.components as { components: unknown[] }[])[0].components).toHaveLength(2);
   });
 
-  it("awards points for a correct on-time click, once", async () => {
-    const { store } = fakeStore();
-    const now = Date.now();
-    expect((await handleInteraction(click(0, 5_000, now), store, now)).data?.content).toMatch(/Correct/);
-    expect((await handleInteraction(click(0, 6_000, now), store, now)).data?.content).toMatch(/already answered/);
+  it("tells unlinked users to link first", async () => {
+    const res = await handleInteraction(command("trivia", "stranger"), fakeStore().store);
+    expect(res.data?.content).toMatch(/\/link/);
+    expect(res.data?.components).toBeUndefined();
   });
 
-  it("reveals the answer instead of scoring after the time limit", async () => {
+  it("a correct click updates the message in place, removes the buttons and awards points", async () => {
+    const { store, earnedCount } = fakeStore();
     const now = Date.now();
-    const res = await handleInteraction(click(0, 31_000, now), fakeStore().store, now);
-    expect(res.data?.content).toMatch(/Time's up.*right/);
+    await handleInteraction(command("trivia"), store, now, first);
+    const res = await handleInteraction(click(0, 4_000, now), store, now);
+    expect(res.type).toBe(7);
+    expect(res.data).toMatchObject({ components: [] });
+    expect(res.data?.content).toMatch(/Correct/);
+    expect(earnedCount()).toBe(1);
+  });
+
+  it("a click after 10 seconds is expired and scores nothing", async () => {
+    const { store, earnedCount } = fakeStore();
+    const now = Date.now();
+    await handleInteraction(command("trivia"), store, now, first);
+    const res = await handleInteraction(click(0, 10_500, now), store, now);
+    expect(res.data?.content).toMatch(/Time's up/);
+    expect(earnedCount()).toBe(0);
+  });
+
+  it("falls back to the message id's timestamp when none is provided", async () => {
+    const { store } = fakeStore();
+    const now = Date.now();
+    await handleInteraction(command("trivia"), store, now, first);
+    const id = String((BigInt(now - 3_000) - 1420070400000n) << 22n);
+    const res = await handleInteraction({ ...click(0, 0, now), message: { id } }, store, now);
+    expect(res.data?.content).toMatch(/Correct/);
+  });
+
+  it("closes the question if the message time is unknown", async () => {
+    const res = await handleInteraction({ ...click(0, 0, Date.now()), message: {} }, fakeStore().store);
+    expect(res.data?.content).toMatch(/closed/);
   });
 });
 

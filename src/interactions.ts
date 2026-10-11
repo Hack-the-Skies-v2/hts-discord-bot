@@ -1,16 +1,16 @@
-import { answerQuestion, getPointsMessage, linkAccount, outcomeMessage } from "./handlers.js";
-import { CHOICE_LABELS, formatLeaderboard, formatQuestion, pickQuestion, type Question } from "./logic.js";
+import { answerQuestion, getPointsMessage, linkAccount, outcomeMessage, startMessage, startTrivia } from "./handlers.js";
+import { CHOICE_LABELS, formatLeaderboard, formatQuestion, type Question } from "./logic.js";
 import type { Store } from "./store.js";
 
-const MANAGE_GUILD = 1n << 5n;
 const EPHEMERAL = 64;
+const DISCORD_EPOCH_MS = 1420070400000n;
 
 type Interaction = {
   type: number;
   data?: { name?: string; custom_id?: string; options?: { name: string; value: string }[] };
-  member?: { user?: { id: string }; permissions?: string };
+  member?: { user?: { id: string } };
   user?: { id: string };
-  message?: { timestamp: string };
+  message?: { id?: string; timestamp?: string };
 };
 
 export type InteractionResponse = { type: number; data?: Record<string, unknown> };
@@ -20,6 +20,9 @@ const reply = (content: string, extra: Record<string, unknown> = {}): Interactio
   data: { content, flags: EPHEMERAL, ...extra },
 });
 
+/** Edits the question message in place (removing the buttons) so it can't be clicked twice. */
+const updateMessage = (content: string): InteractionResponse => ({ type: 7, data: { content, components: [] } });
+
 function triviaButtons(q: Question) {
   return [
     {
@@ -27,6 +30,14 @@ function triviaButtons(q: Question) {
       components: q.choices.map((_, i) => ({ type: 2, style: 1, label: CHOICE_LABELS[i], custom_id: `trivia:${q.id}:${i}` })),
     },
   ];
+}
+
+/** When the question message was created: its timestamp, or the time encoded in its snowflake id. */
+function messageTimeMs(message?: { id?: string; timestamp?: string }): number {
+  const fromTimestamp = message?.timestamp ? Date.parse(message.timestamp) : NaN;
+  if (!Number.isNaN(fromTimestamp)) return fromTimestamp;
+  if (message?.id && /^\d+$/.test(message.id)) return Number((BigInt(message.id) >> 22n) + DISCORD_EPOCH_MS);
+  return NaN;
 }
 
 export async function handleInteraction(
@@ -51,12 +62,9 @@ export async function handleInteraction(
       case "leaderboard":
         return { type: 4, data: { content: formatLeaderboard(await store.leaderboard(10)), allowed_mentions: { parse: [] } } };
       case "trivia": {
-        const perms = BigInt(interaction.member?.permissions ?? "0");
-        if (!(perms & MANAGE_GUILD)) return reply("Only organizers can post trivia.");
-        const question = pickQuestion(await store.listQuestions(), new Set(), random);
-        if (!question) return reply("No unasked trivia questions left. Add more and run `npm run seed`.");
-        await store.markQuestionAsked(question.id);
-        return { type: 4, data: { content: formatQuestion(question), components: triviaButtons(question) } };
+        const outcome = await startTrivia(store, discordId, random);
+        if (outcome.status !== "question") return reply(startMessage(outcome));
+        return reply(formatQuestion(outcome.question), { components: triviaButtons(outcome.question) });
       }
     }
     return reply("Unknown command.");
@@ -65,15 +73,11 @@ export async function handleInteraction(
   if (interaction.type === 3 && interaction.data?.custom_id?.startsWith("trivia:")) {
     const [, questionId, choice] = interaction.data.custom_id.split(":");
     const question = await store.getQuestion(questionId);
-    const postedAtMs = interaction.message ? Date.parse(interaction.message.timestamp) : NaN;
-    if (!question || Number.isNaN(postedAtMs)) return reply("This question is closed.");
+    const postedAtMs = messageTimeMs(interaction.message);
+    if (!question || Number.isNaN(postedAtMs)) return updateMessage("This question is closed.");
 
     const outcome = await answerQuestion(store, { discordId, question, choiceIndex: Number(choice), postedAtMs, nowMs });
-    if (outcome.status === "expired") {
-      const answer = `${CHOICE_LABELS[question.correctIndex]}) ${question.choices[question.correctIndex]}`;
-      return reply(`⏰ Time's up! The answer was **${answer}**.`);
-    }
-    return reply(outcomeMessage(outcome));
+    return updateMessage(outcomeMessage(outcome));
   }
 
   return reply("Unsupported interaction.");

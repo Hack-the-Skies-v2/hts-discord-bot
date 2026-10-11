@@ -16,7 +16,7 @@ const { error } = await db.from("trivia_questions").upsert(
     question: s.question,
     choices: s.choices,
     correct_index: s.correctIndex,
-    time_limit_seconds: s.timeLimitSeconds ?? 30,
+    time_limit_seconds: s.timeLimitSeconds ?? 10,
   })),
   { onConflict: "question" },
 );

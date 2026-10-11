@@ -8,10 +8,10 @@ It is a **serverless "interactions" bot**: Discord POSTs each slash command / bu
 - `/link email` — accepted hackers/mentors/judges (and organizers) link Discord to their HTS account
 - `/points` — your balance
 - `/leaderboard` — top 10 (linked hackers only)
-- `/trivia` — organizers (Manage Server) post a question; hackers click A/B/C/D within the time limit, one answer each, correct = +10 pts via the `Discord trivia` point action. Answers after the limit just reveal the answer.
+- `/trivia` — any linked hacker gets their own private question (A/B/C/D buttons, **10 seconds**). Asking uses the question up, so nobody sees the same one twice. Correct = +10 pts via the `Discord trivia` point action, capped at 5 correct answers per hacker (`point_actions.max_redemptions`).
 
 ## Setup
-1. Apply `supabase/migrations/20261011000000_create_discord_bot.sql` and `20261011010000_trivia_asked_at.sql`.
+1. Apply the SQL files in `supabase/` in order (`...create_discord_bot`, `...trivia_asked_at`, `...trivia_cap`, `...trivia_personal`).
 2. `cp .env.example .env`, fill it in, then `npm install`, `npm run seed`, `npm run deploy-commands`.
 3. Deploy this folder (`discord-bot/` as the project root) to Vercel (or any host that supports Web `Request`/`Response` handlers). Set the same env vars in the host's dashboard (`DISCORD_PUBLIC_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`).
 4. In the Developer Portal → General Information, set **Interactions Endpoint URL** to `https://<your-deployment>/api/interactions`. Discord sends a signed PING to verify it.

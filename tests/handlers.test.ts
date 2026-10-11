@@ -1,100 +1,107 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { answerQuestion, getPointsMessage, linkAccount } from "../src/handlers.js";
-import type { Question } from "../src/logic.js";
-import type { Store } from "../src/store.js";
+import { describe, expect, it } from "vitest";
+import { answerQuestion, getPointsMessage, linkAccount, startTrivia } from "../src/handlers.js";
+import { fakeStore, questions } from "./fakeStore.js";
 
-const question: Question = { id: "q1", question: "?", choices: ["right", "wrong"], correctIndex: 0, timeLimitSeconds: 30 };
-
-function fakeStore(accepted = true, cap: number | null = null) {
-  const links = new Map<string, string>();
-  const answered = new Set<string>();
-  const balances = new Map<string, number>();
-  const store: Store = {
-    getLinkedUserId: async (d) => links.get(d) ?? null,
-    findUserIdByEmail: async (e) => (e === "hacker@example.com" ? "user-1" : null),
-    isAcceptedParticipant: async () => accepted,
-    linkDiscord: async (d, u) => {
-      if ([...links.entries()].some(([id, user]) => user === u && id !== d)) return "user-taken";
-      links.set(d, u);
-      return "ok";
-    },
-    listQuestions: async () => [question],
-    markQuestionAsked: async () => {},
-    getQuestion: async () => question,
-    recordAnswer: async (u, q) => (answered.has(`${u}:${q}`) ? false : (answered.add(`${u}:${q}`), true)),
-    getTriviaProgress: async (u) => ({ earned: (balances.get(u) ?? 0) / 10, max: cap }),
-    awardTriviaPoints: async (u) => (balances.set(u, (balances.get(u) ?? 0) + 10), 10),
-    getBalance: async (u) => balances.get(u) ?? 0,
-    leaderboard: async () => [],
-  };
-  return { store, balances };
-}
+const [q1, q2] = questions;
+const base = { discordId: "linked", postedAtMs: 0, nowMs: 5_000 };
 
 describe("linkAccount", () => {
-  it("links a known email, rejects unknown and malformed ones", async () => {
+  it("links a known, accepted email and rejects unknown, malformed and unaccepted ones", async () => {
     const { store } = fakeStore();
-    expect(await linkAccount(store, "d1", "hacker@example.com")).toMatch(/Linked/);
-    expect(await linkAccount(store, "d1", "ghost@example.com")).toMatch(/couldn't find/);
-    expect(await linkAccount(store, "d1", "nope")).toMatch(/email address/);
-  });
-  it("refuses to link accounts that aren't accepted", async () => {
-    const { store } = fakeStore(false);
-    expect(await linkAccount(store, "d1", "hacker@example.com")).toMatch(/hasn't been accepted/);
-    expect(await store.getLinkedUserId("d1")).toBeNull();
+    expect(await linkAccount(store, "d9", "hacker@example.com")).toMatch(/Linked/);
+    expect(await linkAccount(store, "d9", "ghost@example.com")).toMatch(/couldn't find/);
+    expect(await linkAccount(store, "d9", "nope")).toMatch(/email address/);
+    expect(await linkAccount(fakeStore({ accepted: false }).store, "d9", "hacker@example.com")).toMatch(/hasn't been accepted/);
   });
   it("refuses to link one HTS account to two Discords", async () => {
     const { store } = fakeStore();
-    await linkAccount(store, "d1", "hacker@example.com");
-    expect(await linkAccount(store, "d2", "hacker@example.com")).toMatch(/already linked/);
+    await linkAccount(store, "d9", "hacker@example.com");
+    expect(await linkAccount(store, "d10", "hacker@example.com")).toMatch(/already linked/);
   });
 });
 
-describe("trivia cap", () => {
-  it("stops awarding once the hacker reaches the cap and doesn't record the answer", async () => {
-    const { store, balances } = fakeStore(true, 2);
-    await linkAccount(store, "d1", "hacker@example.com");
-    const q = (id: string): Question => ({ ...question, id });
-    const base = { discordId: "d1", choiceIndex: 0, postedAtMs: 0, nowMs: 1_000 };
-    expect(await answerQuestion(store, { ...base, question: q("a") })).toEqual({ status: "correct", points: 10 });
-    expect(await answerQuestion(store, { ...base, question: q("b") })).toEqual({ status: "correct", points: 10 });
-    expect(await answerQuestion(store, { ...base, question: q("c") })).toEqual({ status: "capped", max: 2 });
-    expect(balances.get("user-1")).toBe(20);
+describe("startTrivia", () => {
+  it("requires a linked account", async () => {
+    expect(await startTrivia(fakeStore().store, "stranger")).toEqual({ status: "not-linked" });
   });
-  it("wrong answers never count toward the cap", async () => {
-    const { store } = fakeStore(true, 1);
-    await linkAccount(store, "d1", "hacker@example.com");
-    const base = { discordId: "d1", postedAtMs: 0, nowMs: 1_000 };
-    expect(await answerQuestion(store, { ...base, question: { ...question, id: "a" }, choiceIndex: 1 })).toEqual({ status: "wrong" });
-    expect(await answerQuestion(store, { ...base, question: { ...question, id: "b" }, choiceIndex: 0 })).toEqual({ status: "correct", points: 10 });
+
+  it("issues a question and never issues the same one twice", async () => {
+    const { store } = fakeStore();
+    const seen = new Set<string>();
+    for (let i = 0; i < 3; i++) {
+      const res = await startTrivia(store, "linked");
+      expect(res.status).toBe("question");
+      if (res.status === "question") seen.add(res.question.id);
+    }
+    expect(seen.size).toBe(3);
+    expect(await startTrivia(store, "linked")).toEqual({ status: "none-left" });
+  });
+
+  it("uses a question up even if it is never answered", async () => {
+    const { store } = fakeStore({ pool: [q1] });
+    await startTrivia(store, "linked");
+    expect(await startTrivia(store, "linked")).toEqual({ status: "none-left" });
+  });
+
+  it("gives no new question once the hacker is at the cap", async () => {
+    expect(await startTrivia(fakeStore({ cap: 0 }).store, "linked")).toEqual({ status: "capped", max: 0 });
   });
 });
 
 describe("answerQuestion", () => {
-  let ctx: ReturnType<typeof fakeStore>;
-  const args = (over = {}) => ({ discordId: "d1", question, choiceIndex: 0, postedAtMs: 0, nowMs: 5_000, ...over });
-
-  beforeEach(async () => {
-    ctx = fakeStore();
-    await linkAccount(ctx.store, "d1", "hacker@example.com");
-  });
-
   it("awards points for a correct, on-time answer", async () => {
-    expect(await answerQuestion(ctx.store, args())).toEqual({ status: "correct", points: 10 });
-    expect(await getPointsMessage(ctx.store, "d1")).toContain("10");
+    const { store, earnedCount } = fakeStore();
+    await store.issueQuestion("user-1", q1.id);
+    expect(await answerQuestion(store, { ...base, question: q1, choiceIndex: 0 })).toEqual({ status: "correct", points: 10 });
+    expect(earnedCount()).toBe(1);
+    expect(await getPointsMessage(store, "linked")).toContain("10");
   });
-  it("gives no points for a wrong answer and doesn't leak the answer", async () => {
-    expect(await answerQuestion(ctx.store, args({ choiceIndex: 1 }))).toEqual({ status: "wrong" });
-    expect(ctx.balances.size).toBe(0);
+
+  it("gives nothing for a wrong answer and doesn't leak the answer", async () => {
+    const { store, earnedCount } = fakeStore();
+    await store.issueQuestion("user-1", q1.id);
+    expect(await answerQuestion(store, { ...base, question: q1, choiceIndex: 1 })).toEqual({ status: "wrong" });
+    expect(earnedCount()).toBe(0);
   });
-  it("rejects late answers without recording them", async () => {
-    expect(await answerQuestion(ctx.store, args({ nowMs: 31_000 }))).toEqual({ status: "expired" });
+
+  it("treats an answer after 10 seconds as expired, even if it was right, and burns the question", async () => {
+    const { store, earnedCount } = fakeStore();
+    await store.issueQuestion("user-1", q1.id);
+    expect(await answerQuestion(store, { ...base, question: q1, choiceIndex: 0, nowMs: 10_001 })).toEqual({ status: "expired" });
+    expect(earnedCount()).toBe(0);
+    expect(await answerQuestion(store, { ...base, question: q1, choiceIndex: 0 })).toEqual({ status: "already-answered" });
   });
-  it("only lets each hacker answer once", async () => {
-    await answerQuestion(ctx.store, args());
-    expect(await answerQuestion(ctx.store, args())).toEqual({ status: "already-answered" });
-    expect(ctx.balances.get("user-1")).toBe(10);
+
+  it("accepts an answer right at the 10 second mark", async () => {
+    const { store } = fakeStore();
+    await store.issueQuestion("user-1", q1.id);
+    expect(await answerQuestion(store, { ...base, question: q1, choiceIndex: 0, nowMs: 10_000 })).toMatchObject({ status: "correct" });
   });
+
+  it("only counts the first click", async () => {
+    const { store, earnedCount } = fakeStore();
+    await store.issueQuestion("user-1", q1.id);
+    await answerQuestion(store, { ...base, question: q1, choiceIndex: 0 });
+    expect(await answerQuestion(store, { ...base, question: q1, choiceIndex: 0 })).toEqual({ status: "already-answered" });
+    expect(earnedCount()).toBe(1);
+  });
+
+  it("can't answer a question that was never issued to them", async () => {
+    const { store } = fakeStore();
+    expect(await answerQuestion(store, { ...base, question: q2, choiceIndex: 1 })).toEqual({ status: "already-answered" });
+  });
+
   it("requires a linked account", async () => {
-    expect(await answerQuestion(ctx.store, args({ discordId: "stranger" }))).toEqual({ status: "not-linked" });
+    const { store } = fakeStore();
+    expect(await answerQuestion(store, { ...base, discordId: "stranger", question: q1, choiceIndex: 0 })).toEqual({ status: "not-linked" });
+  });
+
+  it("stops awarding at the cap and wrong answers don't count toward it", async () => {
+    const { store, earnedCount } = fakeStore({ cap: 1 });
+    for (const q of [questions[0], questions[1], questions[2]]) await store.issueQuestion("user-1", q.id);
+    expect(await answerQuestion(store, { ...base, question: q1, choiceIndex: 1 })).toEqual({ status: "wrong" });
+    expect(await answerQuestion(store, { ...base, question: q2, choiceIndex: 1 })).toEqual({ status: "correct", points: 10 });
+    expect(await answerQuestion(store, { ...base, question: questions[2], choiceIndex: 0 })).toEqual({ status: "capped", max: 1 });
+    expect(earnedCount()).toBe(1);
   });
 });

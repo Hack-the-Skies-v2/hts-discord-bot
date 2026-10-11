@@ -7,11 +7,13 @@ export interface Store {
   /** True for accepted hackers/mentors/judges and organizers. */
   isAcceptedParticipant(userId: string, email: string): Promise<boolean>;
   linkDiscord(discordId: string, userId: string): Promise<"ok" | "user-taken">;
-  listQuestions(): Promise<Question[]>;
-  markQuestionAsked(id: string): Promise<void>;
+  /** Active questions this user has never been issued. */
+  listUnseenQuestions(userId: string): Promise<Question[]>;
+  /** Marks a question as issued to this user. Returns false if they already have it. */
+  issueQuestion(userId: string, questionId: string): Promise<boolean>;
   getQuestion(id: string): Promise<Question | null>;
-  /** Returns false if the user already answered this question. */
-  recordAnswer(userId: string, questionId: string, correct: boolean): Promise<boolean>;
+  /** Closes an issued question (answered or expired). Returns false if it was already closed. */
+  respondToQuestion(userId: string, questionId: string, correct: boolean): Promise<boolean>;
   /** How many trivia awards the user has and the cap (null = unlimited). */
   getTriviaProgress(userId: string): Promise<{ earned: number; max: number | null }>;
   awardTriviaPoints(userId: string): Promise<number>;
@@ -86,15 +88,22 @@ export function createSupabaseStore(url: string, serviceRoleKey: string): Store 
       return "ok";
     },
 
-    async listQuestions() {
-      const { data, error } = await db.from("trivia_questions").select("*").eq("active", true).is("asked_at", null);
+    async listUnseenQuestions(userId) {
+      const { data: seen, error: seenError } = await db.from("trivia_answers").select("question_id").eq("user_id", userId);
+      if (seenError) throw seenError;
+      const { data, error } = await db.from("trivia_questions").select("*").eq("active", true);
       if (error) throw error;
-      return (data as QuestionRow[]).map(toQuestion);
+      const seenIds = new Set(seen?.map((r) => r.question_id as string));
+      return (data as QuestionRow[]).filter((r) => !seenIds.has(r.id)).map(toQuestion);
     },
 
-    async markQuestionAsked(id) {
-      const { error } = await db.from("trivia_questions").update({ asked_at: new Date().toISOString() }).eq("id", id);
+    async issueQuestion(userId, questionId) {
+      const { error } = await db
+        .from("trivia_answers")
+        .insert({ user_id: userId, question_id: questionId, correct: false, responded: false });
+      if (error?.code === "23505") return false;
       if (error) throw error;
+      return true;
     },
 
     async getQuestion(id) {
@@ -103,11 +112,16 @@ export function createSupabaseStore(url: string, serviceRoleKey: string): Store 
       return data ? toQuestion(data as QuestionRow) : null;
     },
 
-    async recordAnswer(userId, questionId, correct) {
-      const { error } = await db.from("trivia_answers").insert({ user_id: userId, question_id: questionId, correct });
-      if (error?.code === "23505") return false;
+    async respondToQuestion(userId, questionId, correct) {
+      const { data, error } = await db
+        .from("trivia_answers")
+        .update({ correct, responded: true, answered_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .eq("question_id", questionId)
+        .eq("responded", false)
+        .select("question_id");
       if (error) throw error;
-      return true;
+      return (data?.length ?? 0) > 0;
     },
 
     async getTriviaProgress(userId) {
