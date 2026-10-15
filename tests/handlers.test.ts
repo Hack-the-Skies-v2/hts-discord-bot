@@ -25,7 +25,7 @@ describe("startTrivia", () => {
     expect(await startTrivia(fakeStore().store, "stranger")).toEqual({ status: "not-linked" });
   });
 
-  it("issues a question and never issues the same one twice", async () => {
+  it("issues each question once before repeating any", async () => {
     const { store } = fakeStore();
     const seen = new Set<string>();
     for (let i = 0; i < 3; i++) {
@@ -34,12 +34,21 @@ describe("startTrivia", () => {
       if (res.status === "question") seen.add(res.question.id);
     }
     expect(seen.size).toBe(3);
-    expect(await startTrivia(store, "linked")).toEqual({ status: "none-left" });
   });
 
-  it("uses a question up even if it is never answered", async () => {
+  it("recycles missed and skipped questions once the whole pool has been seen", async () => {
     const { store } = fakeStore({ pool: [q1] });
-    await startTrivia(store, "linked");
+    const first = await startTrivia(store, "linked");
+    expect(first).toMatchObject({ status: "question" });
+    // never answered, so it's still "issued"; a later one-click expiry closes it as missed
+    await store.respondToQuestion("user-1", q1.id, false);
+    expect(await startTrivia(store, "linked")).toMatchObject({ status: "question", question: { id: "q1" } });
+  });
+
+  it("never recycles a question the hacker got right", async () => {
+    const { store } = fakeStore({ pool: [q1] });
+    await store.issueQuestion("user-1", q1.id);
+    await store.respondToQuestion("user-1", q1.id, true);
     expect(await startTrivia(store, "linked")).toEqual({ status: "none-left" });
   });
 

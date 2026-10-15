@@ -25,6 +25,9 @@ export function fakeStore({ accepted = true, cap = null, pool = questions }: Opt
       return "ok";
     },
     listUnseenQuestions: async (u) => pool.filter((q) => !rows.has(`${u}:${q.id}`)),
+    recycleQuestions: async (u) => {
+      for (const [k, row] of rows) if (k.startsWith(`${u}:`) && !row.correct && row.responded) rows.delete(k);
+    },
     issueQuestion: async (u, q) => (rows.has(`${u}:${q}`) ? false : (rows.set(`${u}:${q}`, { correct: false, responded: false }), true)),
     getQuestion: async (id) => pool.find((q) => q.id === id) ?? null,
     respondToQuestion: async (u, q, correct) => {

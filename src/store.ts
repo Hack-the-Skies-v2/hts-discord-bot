@@ -9,6 +9,8 @@ export interface Store {
   linkDiscord(discordId: string, userId: string): Promise<"ok" | "user-taken">;
   /** Active questions this user has never been issued. */
   listUnseenQuestions(userId: string): Promise<Question[]>;
+  /** Frees up this user's finished questions they didn't get right, so they can be asked again. */
+  recycleQuestions(userId: string): Promise<void>;
   /** Marks a question as issued to this user. Returns false if they already have it. */
   issueQuestion(userId: string, questionId: string): Promise<boolean>;
   getQuestion(id: string): Promise<Question | null>;
@@ -95,6 +97,11 @@ export function createSupabaseStore(url: string, serviceRoleKey: string): Store 
       if (error) throw error;
       const seenIds = new Set(seen?.map((r) => r.question_id as string));
       return (data as QuestionRow[]).filter((r) => !seenIds.has(r.id)).map(toQuestion);
+    },
+
+    async recycleQuestions(userId) {
+      const { error } = await db.from("trivia_answers").delete().eq("user_id", userId).eq("correct", false).eq("responded", true);
+      if (error) throw error;
     },
 
     async issueQuestion(userId, questionId) {

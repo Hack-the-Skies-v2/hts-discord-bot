@@ -26,7 +26,12 @@ export async function startTrivia(store: Store, discordId: string, random = Math
   const { earned, max } = await store.getTriviaProgress(userId);
   if (max !== null && earned >= max) return { status: "capped", max };
 
-  const unseen = await store.listUnseenQuestions(userId);
+  let unseen = await store.listUnseenQuestions(userId);
+  if (unseen.length === 0) {
+    // They've seen the whole pool: let the ones they missed or skipped come around again.
+    await store.recycleQuestions(userId);
+    unseen = await store.listUnseenQuestions(userId);
+  }
   for (let attempt = 0; attempt < 3; attempt++) {
     const question = pickQuestion(unseen, new Set(), random);
     if (!question) return { status: "none-left" };
