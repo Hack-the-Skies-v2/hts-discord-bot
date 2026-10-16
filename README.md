@@ -21,3 +21,6 @@ It is a **serverless "interactions" bot**: Discord POSTs each slash command / bu
 `npm run setup-automod` creates AutoMod rules from the server rules (profanity/slurs/sexual content, spam, mention spam, invite links). It needs `DISCORD_GUILD_ID`, optionally `DISCORD_ALERT_CHANNEL_ID`, and the bot needs the Manage Server permission. Discord enforces the rules itself afterwards. Name-format and Devpost/GitHub rules can't be automated.
 
 `npm test` and `npm run typecheck` need no credentials.
+
+## Pausing and resuming
+`src/pause.ts` has a `PAUSED` switch. While `true`, every command and button replies "taking a short break" and nothing touches the database (Discord's health-check ping is still answered). To resume, set `PAUSED = false`, commit and push; Vercel redeploys automatically.

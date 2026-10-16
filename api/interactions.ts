@@ -1,4 +1,5 @@
 import { handleInteraction } from "../src/interactions.js";
+import { PAUSED, pausedResponse } from "../src/pause.js";
 import { createSupabaseStore } from "../src/store.js";
 import { verifyDiscordSignature } from "../src/verify.js";
 
@@ -15,7 +16,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    return Response.json(await handleInteraction(JSON.parse(rawBody), store));
+    const interaction = JSON.parse(rawBody);
+    if (PAUSED) return Response.json(pausedResponse(interaction));
+    return Response.json(await handleInteraction(interaction, store));
   } catch (err) {
     console.error(err);
     return Response.json({ type: 4, data: { content: "Something went wrong. Try again or ask an organizer.", flags: 64 } });
