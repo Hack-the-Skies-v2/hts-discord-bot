@@ -86,6 +86,37 @@ describe("personal /trivia", () => {
   });
 });
 
+describe("channel restriction", () => {
+  const allowed = ["trivia-channel"];
+  const inChannel = (name: string, channel_id: string | undefined) => ({ ...command(name), channel_id });
+  const run = (name: string, channel_id: string | undefined, store = fakeStore().store) =>
+    handleInteraction(inChannel(name, channel_id), store, Date.now(), first, allowed);
+
+  it("rejects every command used in another channel, privately, without touching the database", async () => {
+    for (const name of ["link", "points", "leaderboard", "trivia"]) {
+      const { store, rows } = fakeStore();
+      const res = await run(name, "general", store);
+      expect(res.data).toMatchObject({ flags: 64 });
+      expect(res.data?.content).toContain("<#trivia-channel>");
+      expect(rows.size).toBe(0);
+    }
+  });
+
+  it("rejects commands with no channel information", async () => {
+    expect((await run("points", undefined)).data?.content).toContain("<#trivia-channel>");
+  });
+
+  it("allows commands in the trivia channel", async () => {
+    expect((await run("points", "trivia-channel")).data?.content).toMatch(/points/);
+    expect((await run("trivia", "trivia-channel")).data?.content).toMatch(/One\?/);
+  });
+
+  it("allows commands anywhere when no channels are configured", async () => {
+    const res = await handleInteraction(inChannel("points", "general"), fakeStore().store);
+    expect(res.data?.content).toMatch(/points/);
+  });
+});
+
 describe("verifyDiscordSignature", () => {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const publicKeyHex = publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("hex");

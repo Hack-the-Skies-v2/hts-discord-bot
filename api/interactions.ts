@@ -1,3 +1,4 @@
+import { TRIVIA_CHANNEL_IDS } from "../src/config.js";
 import { handleInteraction } from "../src/interactions.js";
 import { PAUSED, pausedResponse } from "../src/pause.js";
 import { createSupabaseStore } from "../src/store.js";
@@ -18,7 +19,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const interaction = JSON.parse(rawBody);
     if (PAUSED) return Response.json(pausedResponse(interaction));
-    return Response.json(await handleInteraction(interaction, store));
+    return Response.json(await handleInteraction(interaction, store, Date.now(), Math.random, TRIVIA_CHANNEL_IDS));
   } catch (err) {
     console.error(err);
     return Response.json({ type: 4, data: { content: "Something went wrong. Try again or ask an organizer.", flags: 64 } });

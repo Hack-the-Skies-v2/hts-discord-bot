@@ -8,6 +8,7 @@ const DISCORD_EPOCH_MS = 1420070400000n;
 type Interaction = {
   type: number;
   data?: { name?: string; custom_id?: string; options?: { name: string; value: string }[] };
+  channel_id?: string;
   member?: { user?: { id: string } };
   user?: { id: string };
   message?: { id?: string; timestamp?: string };
@@ -45,6 +46,7 @@ export async function handleInteraction(
   store: Store,
   nowMs = Date.now(),
   random = Math.random,
+  allowedChannelIds: string[] = [],
 ): Promise<InteractionResponse> {
   if (interaction.type === 1) return { type: 1 }; // PING
 
@@ -52,6 +54,10 @@ export async function handleInteraction(
   if (!discordId) return reply("I couldn't tell who you are.");
 
   if (interaction.type === 2) {
+    if (allowedChannelIds.length > 0 && !(interaction.channel_id && allowedChannelIds.includes(interaction.channel_id))) {
+      const where = allowedChannelIds.map((id) => `<#${id}>`).join(" or ");
+      return reply(`Please use bot commands in ${where}.`);
+    }
     switch (interaction.data?.name) {
       case "link": {
         const email = interaction.data.options?.find((o) => o.name === "email")?.value ?? "";
