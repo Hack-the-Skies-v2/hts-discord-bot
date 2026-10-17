@@ -39,7 +39,7 @@ export function fakeStore({ accepted = true, cap = null, pool = questions }: Opt
     getTriviaProgress: async () => ({ earned, max: cap }),
     awardTriviaPoints: async () => (earned++, 10),
     getBalance: async () => earned * 10,
-    leaderboard: async () => [{ discordId: "1", balance: 5 }],
+    leaderboard: async () => [{ discordId: "1", balance: 5, triviaPoints: 0, triviaMax: 50 }],
   };
   return { store, rows, earnedCount: () => earned };
 }

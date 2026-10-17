@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Question } from "./logic.js";
+import type { LeaderboardRow, Question } from "./logic.js";
 
 export interface Store {
   getLinkedUserId(discordId: string): Promise<string | null>;
@@ -20,7 +20,7 @@ export interface Store {
   getTriviaProgress(userId: string): Promise<{ earned: number; max: number | null }>;
   awardTriviaPoints(userId: string): Promise<number>;
   getBalance(userId: string): Promise<number>;
-  leaderboard(limit: number): Promise<{ discordId: string; balance: number }[]>;
+  leaderboard(limit: number): Promise<LeaderboardRow[]>;
 }
 
 const TRIVIA_ACTION = "Discord trivia";
@@ -169,14 +169,34 @@ export function createSupabaseStore(url: string, serviceRoleKey: string): Store 
       const { data: links, error } = await db.from("discord_links").select("discord_id, user_id");
       if (error) throw error;
       if (!links?.length) return [];
-      const { data: points, error: pointsError } = await db
-        .from("user_points")
-        .select("user_id, balance")
-        .in("user_id", links.map((l) => l.user_id));
+      const userIds = links.map((l) => l.user_id);
+      const { data: points, error: pointsError } = await db.from("user_points").select("user_id, balance").in("user_id", userIds);
       if (pointsError) throw pointsError;
       const balances = new Map(points?.map((p) => [p.user_id, p.balance as number]));
+
+      const { data: action, error: actionError } = await db
+        .from("point_actions")
+        .select("id, points, max_redemptions")
+        .eq("name", TRIVIA_ACTION)
+        .single();
+      if (actionError) throw actionError;
+      const { data: earnings, error: earningsError } = await db
+        .from("point_earnings")
+        .select("user_id, points_awarded")
+        .eq("point_action_id", action.id)
+        .in("user_id", userIds);
+      if (earningsError) throw earningsError;
+      const trivia = new Map<string, number>();
+      for (const e of earnings ?? []) trivia.set(e.user_id, (trivia.get(e.user_id) ?? 0) + (e.points_awarded as number));
+      const triviaMax = action.max_redemptions === null ? null : (action.max_redemptions as number) * (action.points as number);
+
       return links
-        .map((l) => ({ discordId: l.discord_id as string, balance: balances.get(l.user_id) ?? 0 }))
+        .map((l) => ({
+          discordId: l.discord_id as string,
+          balance: balances.get(l.user_id) ?? 0,
+          triviaPoints: trivia.get(l.user_id) ?? 0,
+          triviaMax,
+        }))
         .sort((a, b) => b.balance - a.balance)
         .slice(0, limit);
     },

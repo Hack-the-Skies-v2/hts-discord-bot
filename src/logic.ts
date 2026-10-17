@@ -35,10 +35,24 @@ export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-export function formatLeaderboard(rows: { discordId: string; balance: number }[]): string {
+export type LeaderboardRow = {
+  discordId: string;
+  /** Total HTS points balance (check-in, workshops, trivia, ...). */
+  balance: number;
+  /** The part of that balance that came from Discord trivia. */
+  triviaPoints: number;
+  /** Most points trivia can ever give one person (null = no cap). */
+  triviaMax: number | null;
+};
+
+export function formatLeaderboard(rows: LeaderboardRow[]): string {
   if (rows.length === 0) return "No one is on the leaderboard yet!";
   const medals = ["🥇", "🥈", "🥉"];
-  return rows
-    .map((row, i) => `${medals[i] ?? `${i + 1}.`} <@${row.discordId}> — ${row.balance} pts`)
-    .join("\n");
+  const lines = rows.map((row, i) => {
+    const trivia = row.triviaMax === null ? `${row.triviaPoints}` : `${row.triviaPoints}/${row.triviaMax}`;
+    return `${medals[i] ?? `${i + 1}.`} <@${row.discordId}> — ${row.balance} pts (trivia ${trivia})`;
+  });
+  const max = rows[0].triviaMax;
+  const note = max === null ? "Scores are total HTS points." : `Scores are total HTS points. Trivia is capped at ${max} points per person.`;
+  return `${lines.join("\n")}\n\n_${note}_`;
 }
