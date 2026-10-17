@@ -21,7 +21,7 @@ describe("pausedResponse", () => {
 });
 
 describe("pause switch", () => {
-  it("is currently on", () => {
-    expect(PAUSED).toBe(true);
+  it("is a boolean (true = paused, false = running)", () => {
+    expect(typeof PAUSED).toBe("boolean");
   });
 });

@@ -3,7 +3,7 @@
  * touches the database. Discord's health-check PING is still answered so the endpoint stays valid.
  * To resume: set this to false, commit and push.
  */
-export const PAUSED = true;
+export const PAUSED = false;
 
 const PAUSED_MESSAGE = "⏸️ The HTS bot is taking a short break. Trivia and points will be back soon!";
 
